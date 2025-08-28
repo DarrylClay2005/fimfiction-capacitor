@@ -1,0 +1,27 @@
+# Node / npm
+node_modules/
+.npm/
+
+# Capacitor / Ionic / Web
+www/public/
+www/.DS_Store
+
+# Android Gradle
+android/.gradle/
+android/.idea/
+android/local.properties
+android/captures/
+
+# Android builds
+android/build/
+android/app/build/
+
+# Logs and temp
+*.log
+npm-debug.log*
+.yarn*
+
+# OS
+.DS_Store
+Thumbs.db
+

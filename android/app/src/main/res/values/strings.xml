@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FIMFiction</string>
+    <string name="title_activity_main">FIMFiction</string>
+    <string name="package_name">com.desmond.fimfiction</string>
+    <string name="custom_url_scheme">com.desmond.fimfiction</string>
+</resources>

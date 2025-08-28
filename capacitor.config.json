@@ -1,0 +1,13 @@
+{
+  "appId": "com.desmond.fimfiction",
+  "appName": "FIMFiction",
+  "webDir": "www",
+  "server": {
+    "url": "https://www.fimfiction.net",
+    "cleartext": false,
+    "allowNavigation": ["*"]
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
