@@ -27,6 +27,8 @@ import android.webkit.WebView;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
+import android.widget.CheckBox;
+import android.content.SharedPreferences;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.app.ActivityCompat;
@@ -398,23 +400,46 @@ public class MainActivity extends BridgeActivity {
         String v = intent.getStringExtra(EXTRA_WHATS_NEW_VERSION);
         String b = intent.getStringExtra(EXTRA_WHATS_NEW_BODY);
         if (v != null) {
-            showWhatsNewDialog(v, b);
+            if (!hasSeenWhatsNew(v)) {
+                showWhatsNewDialog(v, b);
+            }
             // prevent showing repeatedly on next resumes
             intent.removeExtra(EXTRA_WHATS_NEW_VERSION);
             intent.removeExtra(EXTRA_WHATS_NEW_BODY);
         }
     }
 
+    private boolean hasSeenWhatsNew(String version) {
+        try {
+            SharedPreferences p = getSharedPreferences("whats_new", MODE_PRIVATE);
+            return p.getBoolean("seen_v_" + version, false);
+        } catch (Throwable t) { return false; }
+    }
+
+    private void markWhatsNewSeen(String version) {
+        try {
+            SharedPreferences p = getSharedPreferences("whats_new", MODE_PRIVATE);
+            p.edit().putBoolean("seen_v_" + version, true).apply();
+        } catch (Throwable ignored) {}
+    }
+
     private void showWhatsNewDialog(String version, String body) {
         String msg = (body != null && !body.isEmpty()) ? body : ("New version available: " + version);
-        new AlertDialog.Builder(this)
+        CheckBox cb = new CheckBox(this);
+        cb.setText("Don't show again for this version");
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
                 .setTitle("What's New: " + version)
                 .setMessage(msg)
-                .setPositiveButton("OK", null)
+                .setView(cb)
+                .setPositiveButton("OK", (d, w) -> {
+                    if (cb.isChecked()) markWhatsNewSeen(version);
+                })
                 .setNeutralButton("Releases", (d, w) -> {
+                    if (cb.isChecked()) markWhatsNewSeen(version);
                     try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
                 })
-                .show();
+                .setNegativeButton("Later", null);
+        b.show();
     }
 
     private void attemptReload(boolean forced) {

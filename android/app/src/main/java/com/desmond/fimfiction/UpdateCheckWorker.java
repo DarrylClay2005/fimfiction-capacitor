@@ -19,6 +19,8 @@ import androidx.work.WorkManager;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
+import android.content.SharedPreferences;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -87,7 +89,11 @@ public class UpdateCheckWorker extends Worker {
                 }
 
                 if (isNewer(latest, currentVersion)) {
-                    notifyUpdate(latest, apkUrl, body);
+                    // If user already dismissed What's New for this version, skip notifying again
+                    SharedPreferences p = getApplicationContext().getSharedPreferences("whats_new", Context.MODE_PRIVATE);
+                    if (!p.getBoolean("seen_v_" + latest, false)) {
+                        notifyUpdate(latest, apkUrl, body);
+                    }
                 }
             }
             conn.disconnect();
