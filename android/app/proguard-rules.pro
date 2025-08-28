@@ -19,3 +19,16 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep Capacitor core and plugins (avoid stripping classes used via reflection)
+-keep class com.getcapacitor.** { *; }
+-keep class com.getcapacitor.plugin.** { *; }
+-keep interface com.getcapacitor.** { *; }
+
+# Keep WebView client/chrome client overrides
+-keep class * extends android.webkit.WebViewClient { *; }
+-keep class * extends android.webkit.WebChromeClient { *; }
+
+# Keep FileProvider paths
+-keep class androidx.core.content.FileProvider { *; }
+-keep class androidx.core.content.FileProvider$** { *; }

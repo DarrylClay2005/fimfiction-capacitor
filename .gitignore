@@ -16,6 +16,10 @@ android/captures/
 android/build/
 android/app/build/
 
+# Android signing (local only)
+android/signing.properties
+android/app/keystore/
+
 # Logs and temp
 *.log
 npm-debug.log*
