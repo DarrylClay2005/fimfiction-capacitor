@@ -70,9 +70,13 @@ public class MainActivity extends BridgeActivity {
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            (Build.VERSION.SDK_INT >= 33 ? Manifest.permission.POST_NOTIFICATIONS : null)
         };
-        ActivityCompat.requestPermissions(this, perms, RUNTIME_PERMS_REQ);
+        // Filter nulls (POST_NOTIFICATIONS on older versions)
+        java.util.ArrayList<String> req = new java.util.ArrayList<>();
+        for (String p : perms) if (p != null) req.add(p);
+        ActivityCompat.requestPermissions(this, req.toArray(new String[0]), RUNTIME_PERMS_REQ);
 
         final WebView webView = getBridge().getWebView();
         // Enable WebView debugging for debug builds (detect debuggable flag at runtime)
@@ -160,10 +164,10 @@ public class MainActivity extends BridgeActivity {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     cm.registerDefaultNetworkCallback(networkCallback);
                 } else {
-                    NetworkRequest req = new NetworkRequest.Builder()
+                    NetworkRequest netReq = new NetworkRequest.Builder()
                             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                             .build();
-                    cm.registerNetworkCallback(req, networkCallback);
+                    cm.registerNetworkCallback(netReq, networkCallback);
                 }
             }
         } catch (Throwable ignored) { }
@@ -202,6 +206,8 @@ public class MainActivity extends BridgeActivity {
 
         // Check for updates on startup (silent)
         checkForUpdatesAsync(false);
+        // Schedule periodic background checks via WorkManager
+        schedulePeriodicUpdateChecks();
     }
 
     @Override
@@ -368,6 +374,12 @@ public class MainActivity extends BridgeActivity {
                 return ni != null && ni.isConnected();
             }
         } catch (Throwable t) { return false; }
+    }
+
+    private void schedulePeriodicUpdateChecks() {
+        try {
+            UpdateCheckWorker.schedule(this);
+        } catch (Throwable ignored) { }
     }
 
     private void attemptReload(boolean forced) {
