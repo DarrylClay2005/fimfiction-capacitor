@@ -17,7 +17,24 @@
     <div class="container">
       <h1>You’re offline</h1>
       <p>FIMFiction requires an internet connection. Please check your network and try again.</p>
-      <button onclick="location.reload()">Retry</button>
+      <button onclick="tryOnline()">Retry</button>
+      <script>
+        const START_URL = 'https://www.fimfiction.net';
+        function tryOnline() {
+          if (navigator.onLine) {
+            location.href = START_URL;
+          } else {
+            // Force a refresh of the offline page; network callback in native will reload when online
+            location.reload();
+          }
+        }
+        // Periodically check connectivity and auto-redirect
+        setInterval(() => {
+          if (navigator.onLine) {
+            location.href = START_URL;
+          }
+        }, 4000);
+      </script>
     </div>
   </body>
 </html>

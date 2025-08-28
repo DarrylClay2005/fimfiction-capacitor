@@ -1,8 +1,15 @@
 package com.desmond.fimfiction;
 
 import android.Manifest;
+import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.NetworkRequest;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -26,9 +33,23 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class MainActivity extends BridgeActivity {
 
     private static final int RUNTIME_PERMS_REQ = 1000;
+    private static final String START_URL = "https://www.fimfiction.net";
+    private static final String OFFLINE_URL = "file:///android_asset/public/offline.html";
+    private static final String GH_API_LATEST = "https://api.github.com/repos/DarrylClay2005/fimfiction-capacitor/releases/latest";
+    private static final String GH_RELEASES_PAGE = "https://github.com/DarrylClay2005/fimfiction-capacitor/releases/latest";
+
+    private boolean offlineShown = false;
+    private ConnectivityManager.NetworkCallback networkCallback = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -76,9 +97,17 @@ public class MainActivity extends BridgeActivity {
             }
 
             @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (url != null && !url.startsWith("file:")) {
+                    offlineShown = false;
+                }
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && request.isForMainFrame()) {
-                    view.loadUrl("file:///android_asset/public/offline.html");
+                    offlineShown = true;
+                    view.loadUrl(OFFLINE_URL);
                 }
             }
 
@@ -86,19 +115,48 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                    view.loadUrl("file:///android_asset/public/offline.html");
+                    offlineShown = true;
+                    view.loadUrl(OFFLINE_URL);
                 }
             }
 
             @Override
             public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
                 if (request.isForMainFrame() && errorResponse != null && errorResponse.getStatusCode() >= 400) {
-                    view.loadUrl("file:///android_asset/public/offline.html");
+                    offlineShown = true;
+                    view.loadUrl(OFFLINE_URL);
                 }
             }
         });
 
         webView.setWebChromeClient(new AppWebChromeClient(getBridge()));
+
+        // Auto-reload when connectivity returns if offline page is showing
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                networkCallback = new ConnectivityManager.NetworkCallback() {
+                    @Override
+                    public void onAvailable(Network network) {
+                        runOnUiThread(() -> {
+                            String cur = webView.getUrl();
+                            if (offlineShown || (cur != null && cur.startsWith("file:"))) {
+                                webView.loadUrl(START_URL);
+                                offlineShown = false;
+                            }
+                        });
+                    }
+                };
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    cm.registerDefaultNetworkCallback(networkCallback);
+                } else {
+                    NetworkRequest req = new NetworkRequest.Builder()
+                            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                            .build();
+                    cm.registerNetworkCallback(req, networkCallback);
+                }
+            }
+        } catch (Throwable ignored) { }
 
         // Handle file downloads via Android DownloadManager
         webView.setDownloadListener(new DownloadListener() {
@@ -131,6 +189,82 @@ public class MainActivity extends BridgeActivity {
                 }
             }
         });
+
+        // Check for updates on startup
+        checkForUpdatesAsync();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        try {
+            if (networkCallback != null) {
+                ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                if (cm != null) cm.unregisterNetworkCallback(networkCallback);
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    private void checkForUpdatesAsync() {
+        new Thread(() -> {
+            try {
+                String currentVersion = "0.0.0";
+                long currentCode = 0;
+                try {
+                    PackageManager pm = getPackageManager();
+                    PackageInfo pi = (Build.VERSION.SDK_INT >= 33)
+                            ? pm.getPackageInfo(getPackageName(), PackageManager.PackageInfoFlags.of(0))
+                            : pm.getPackageInfo(getPackageName(), 0);
+                    currentVersion = pi.versionName != null ? pi.versionName : currentVersion;
+                    currentCode = (Build.VERSION.SDK_INT >= 28) ? pi.getLongVersionCode() : pi.versionCode;
+                } catch (Exception ignored) {}
+
+                HttpURLConnection conn = (HttpURLConnection) new URL(GH_API_LATEST).openConnection();
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(6000);
+                conn.setRequestProperty("Accept", "application/vnd.github+json");
+                conn.setRequestProperty("User-Agent", getPackageName());
+                int code = conn.getResponseCode();
+                if (code == 200) {
+                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder sb = new StringBuilder();
+                    String line; while ((line = br.readLine()) != null) sb.append(line);
+                    br.close();
+                    JSONObject obj = new JSONObject(sb.toString());
+                    String tag = obj.optString("tag_name", "");
+                    String latest = tag.startsWith("v") ? tag.substring(1) : tag;
+                    if (isNewer(latest, currentVersion)) {
+                        runOnUiThread(() -> promptUpdate(latest));
+                    }
+                }
+                conn.disconnect();
+            } catch (Exception ignored) { }
+        }).start();
+    }
+
+    private void promptUpdate(String latest) {
+        new AlertDialog.Builder(this)
+                .setTitle("Update available")
+                .setMessage("A new version (" + latest + ") is available. Open the releases page to download?")
+                .setPositiveButton("Open", (d, w) -> {
+                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
+                })
+                .setNegativeButton("Later", null)
+                .show();
+    }
+
+    private boolean isNewer(String a, String b) {
+        try {
+            String[] pa = a.split("\\.");
+            String[] pb = b.split("\\.");
+            int max = Math.max(pa.length, pb.length);
+            for (int i = 0; i < max; i++) {
+                int va = i < pa.length ? Integer.parseInt(pa[i]) : 0;
+                int vb = i < pb.length ? Integer.parseInt(pb[i]) : 0;
+                if (va != vb) return va > vb;
+            }
+            return false;
+        } catch (Exception e) { return !a.equals(b); }
     }
 
     static class AppWebChromeClient extends BridgeWebChromeClient {
