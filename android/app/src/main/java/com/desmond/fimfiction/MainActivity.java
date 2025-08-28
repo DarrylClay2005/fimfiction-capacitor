@@ -24,6 +24,9 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.core.app.ActivityCompat;
@@ -50,6 +53,14 @@ public class MainActivity extends BridgeActivity {
 
     private boolean offlineShown = false;
     private ConnectivityManager.NetworkCallback networkCallback = null;
+
+    private static final int MENU_ID_RELOAD = 1001;
+    private static final int MENU_ID_CHECK_UPDATES = 1002;
+
+    private long lastReloadMs = 0;
+    private int reloadAttempts = 0;
+    private static final int RELOAD_WINDOW_MS = 30_000; // 30 seconds
+    private static final int RELOAD_MAX_ATTEMPTS = 3;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -131,7 +142,7 @@ public class MainActivity extends BridgeActivity {
 
         webView.setWebChromeClient(new AppWebChromeClient(getBridge()));
 
-        // Auto-reload when connectivity returns if offline page is showing
+        // Auto-reload when connectivity returns if offline page is showing (throttled)
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             if (cm != null) {
@@ -141,8 +152,7 @@ public class MainActivity extends BridgeActivity {
                         runOnUiThread(() -> {
                             String cur = webView.getUrl();
                             if (offlineShown || (cur != null && cur.startsWith("file:"))) {
-                                webView.loadUrl(START_URL);
-                                offlineShown = false;
+                                attemptReload(false);
                             }
                         });
                     }
@@ -190,12 +200,24 @@ public class MainActivity extends BridgeActivity {
             }
         });
 
-        // Check for updates on startup
-        checkForUpdatesAsync();
+        // Check for updates on startup (silent)
+        checkForUpdatesAsync(false);
     }
 
     @Override
-    protected void onDestroy() {
+    public void onResume() {
+        super.onResume();
+        // If returning from background and offline page is showing, try a throttled reload
+        try {
+            final WebView webView = getBridge().getWebView();
+            String cur = webView.getUrl();
+            if (offlineShown || (cur != null && cur.startsWith("file:"))) {
+                attemptReload(false);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    public void onDestroy() {
         super.onDestroy();
         try {
             if (networkCallback != null) {
@@ -205,7 +227,7 @@ public class MainActivity extends BridgeActivity {
         } catch (Throwable ignored) { }
     }
 
-    private void checkForUpdatesAsync() {
+    private void checkForUpdatesAsync(boolean interactive) {
         new Thread(() -> {
             try {
                 String currentVersion = "0.0.0";
@@ -233,24 +255,89 @@ public class MainActivity extends BridgeActivity {
                     JSONObject obj = new JSONObject(sb.toString());
                     String tag = obj.optString("tag_name", "");
                     String latest = tag.startsWith("v") ? tag.substring(1) : tag;
+                    String apkUrl = null;
+                    try {
+                        var assets = obj.optJSONArray("assets");
+                        if (assets != null) {
+                            for (int i = 0; i < assets.length(); i++) {
+                                var a = assets.optJSONObject(i);
+                                if (a == null) continue;
+                                String name = a.optString("name", "");
+                                String ctype = a.optString("content_type", "");
+                                String bdl = a.optString("browser_download_url", "");
+                                if ((name != null && name.endsWith(".apk")) || (ctype != null && ctype.contains("android.package-archive"))) {
+                                    apkUrl = bdl;
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (Throwable ignored2) {}
                     if (isNewer(latest, currentVersion)) {
-                        runOnUiThread(() -> promptUpdate(latest));
+                        final String fApk = apkUrl;
+                        runOnUiThread(() -> promptUpdate(latest, fApk));
+                    } else if (interactive) {
+                        runOnUiThread(() -> Toast.makeText(this, "App is up to date", Toast.LENGTH_SHORT).show());
                     }
+                } else if (interactive) {
+                    runOnUiThread(() -> Toast.makeText(this, "Update check failed (" + code + ")", Toast.LENGTH_SHORT).show());
                 }
                 conn.disconnect();
             } catch (Exception ignored) { }
         }).start();
     }
 
-    private void promptUpdate(String latest) {
-        new AlertDialog.Builder(this)
+    private void promptUpdate(String latest, String apkUrl) {
+        AlertDialog.Builder b = new AlertDialog.Builder(this)
                 .setTitle("Update available")
-                .setMessage("A new version (" + latest + ") is available. Open the releases page to download?")
-                .setPositiveButton("Open", (d, w) -> {
-                    try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
-                })
-                .setNegativeButton("Later", null)
-                .show();
+                .setMessage("A new version (" + latest + ") is available.");
+        if (apkUrl != null && !apkUrl.isEmpty()) {
+            b.setPositiveButton("Download", (d, w) -> startApkDownload(apkUrl));
+            b.setNeutralButton("Releases", (d, w) -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
+            });
+            b.setNegativeButton("Later", null);
+        } else {
+            b.setPositiveButton("Open Releases", (d, w) -> {
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
+            });
+            b.setNegativeButton("Later", null);
+        }
+        b.show();
+    }
+
+    private void startApkDownload(String url) {
+        try {
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            if (dm == null) return;
+            String fileName = URLUtil.guessFileName(url, null, "application/vnd.android.package-archive");
+            DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url));
+            req.setMimeType("application/vnd.android.package-archive");
+            req.setTitle(fileName);
+            req.setDescription("Downloading update...");
+            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
+            dm.enqueue(req);
+            Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) { }
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        menu.add(0, MENU_ID_RELOAD, 0, "Reload");
+        menu.add(0, MENU_ID_CHECK_UPDATES, 1, "Check for updates");
+        return super.onCreateOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == MENU_ID_RELOAD) {
+            attemptReload(true);
+            return true;
+        } else if (item.getItemId() == MENU_ID_CHECK_UPDATES) {
+            checkForUpdatesAsync(true);
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 
     private boolean isNewer(String a, String b) {
@@ -265,6 +352,47 @@ public class MainActivity extends BridgeActivity {
             }
             return false;
         } catch (Exception e) { return !a.equals(b); }
+    }
+
+    private boolean isOnline() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) return false;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                Network n = cm.getActiveNetwork();
+                if (n == null) return false;
+                NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+                return caps != null && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+            } else {
+                android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+                return ni != null && ni.isConnected();
+            }
+        } catch (Throwable t) { return false; }
+    }
+
+    private void attemptReload(boolean forced) {
+        final WebView webView = getBridge().getWebView();
+        long now = System.currentTimeMillis();
+        if (now - lastReloadMs > RELOAD_WINDOW_MS) {
+            reloadAttempts = 0;
+        }
+        if (!forced && reloadAttempts >= RELOAD_MAX_ATTEMPTS) {
+            return;
+        }
+        lastReloadMs = now;
+        reloadAttempts++;
+        try {
+            webView.loadUrl("file:///android_asset/public/reloading.html");
+        } catch (Throwable ignored) {}
+        webView.postDelayed(() -> {
+            if (isOnline()) {
+                offlineShown = false;
+                webView.loadUrl(START_URL);
+            } else {
+                offlineShown = true;
+                webView.loadUrl(OFFLINE_URL);
+            }
+        }, 900);
     }
 
     static class AppWebChromeClient extends BridgeWebChromeClient {
