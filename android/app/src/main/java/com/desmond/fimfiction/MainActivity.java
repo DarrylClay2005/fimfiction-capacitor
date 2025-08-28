@@ -51,6 +51,9 @@ public class MainActivity extends BridgeActivity {
     private static final String GH_API_LATEST = "https://api.github.com/repos/DarrylClay2005/fimfiction-capacitor/releases/latest";
     private static final String GH_RELEASES_PAGE = "https://github.com/DarrylClay2005/fimfiction-capacitor/releases/latest";
 
+    private static final String EXTRA_WHATS_NEW_VERSION = "whats_new_version";
+    private static final String EXTRA_WHATS_NEW_BODY = "whats_new_body";
+
     private boolean offlineShown = false;
     private ConnectivityManager.NetworkCallback networkCallback = null;
 
@@ -206,11 +209,19 @@ public class MainActivity extends BridgeActivity {
 
         // Check for updates on startup (silent)
         checkForUpdatesAsync(false);
+        // Check intent for What's New (cold start)
+        handleIncomingIntent(getIntent());
         // Schedule periodic background checks via WorkManager
         schedulePeriodicUpdateChecks();
     }
 
     @Override
+    public void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingIntent(intent);
+    }
+
     public void onResume() {
         super.onResume();
         // If returning from background and offline page is showing, try a throttled reload
@@ -380,6 +391,30 @@ public class MainActivity extends BridgeActivity {
         try {
             UpdateCheckWorker.schedule(this);
         } catch (Throwable ignored) { }
+    }
+
+    private void handleIncomingIntent(android.content.Intent intent) {
+        if (intent == null) return;
+        String v = intent.getStringExtra(EXTRA_WHATS_NEW_VERSION);
+        String b = intent.getStringExtra(EXTRA_WHATS_NEW_BODY);
+        if (v != null) {
+            showWhatsNewDialog(v, b);
+            // prevent showing repeatedly on next resumes
+            intent.removeExtra(EXTRA_WHATS_NEW_VERSION);
+            intent.removeExtra(EXTRA_WHATS_NEW_BODY);
+        }
+    }
+
+    private void showWhatsNewDialog(String version, String body) {
+        String msg = (body != null && !body.isEmpty()) ? body : ("New version available: " + version);
+        new AlertDialog.Builder(this)
+                .setTitle("What's New: " + version)
+                .setMessage(msg)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Releases", (d, w) -> {
+                    try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
+                })
+                .show();
     }
 
     private void attemptReload(boolean forced) {

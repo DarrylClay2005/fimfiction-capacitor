@@ -68,6 +68,7 @@ public class UpdateCheckWorker extends Worker {
                 JSONObject obj = new JSONObject(sb.toString());
                 String tag = obj.optString("tag_name", "");
                 String latest = tag.startsWith("v") ? tag.substring(1) : tag;
+                String body = obj.optString("body", "");
 
                 String apkUrl = null;
                 JSONArray assets = obj.optJSONArray("assets");
@@ -86,7 +87,7 @@ public class UpdateCheckWorker extends Worker {
                 }
 
                 if (isNewer(latest, currentVersion)) {
-                    notifyUpdate(latest, apkUrl);
+                    notifyUpdate(latest, apkUrl, body);
                 }
             }
             conn.disconnect();
@@ -135,22 +136,25 @@ public class UpdateCheckWorker extends Worker {
         }
     }
 
-    private void notifyUpdate(String latest, String apkUrl) {
+    private void notifyUpdate(String latest, String apkUrl, String body) {
         ensureChannel();
         NotificationCompat.Builder nb = new NotificationCompat.Builder(getApplicationContext(), CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("Update available: " + latest)
-                .setContentText("Tap to open releases page")
+                .setContentText("Tap to view What's New")
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(body != null && !body.isEmpty() ? body : "A new version is available."))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true);
-        // We keep it simple: open releases page when tapped
-        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW,
-                android.net.Uri.parse("https://github.com/DarrylClay2005/fimfiction-capacitor/releases/latest"));
+        // Open the app to show What's New dialog
+        android.content.Intent intent = new android.content.Intent(getApplicationContext(), com.desmond.fimfiction.MainActivity.class);
+        intent.setFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        intent.putExtra("whats_new_version", latest);
+        intent.putExtra("whats_new_body", body);
         android.app.PendingIntent pi = android.app.PendingIntent.getActivity(
                 getApplicationContext(), 0, intent,
                 android.os.Build.VERSION.SDK_INT >= 31
-                        ? android.app.PendingIntent.FLAG_IMMUTABLE
-                        : 0);
+                        ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
+                        : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
         nb.setContentIntent(pi);
         NotificationManagerCompat.from(getApplicationContext()).notify(2001, nb.build());
     }
@@ -159,7 +163,7 @@ public class UpdateCheckWorker extends Worker {
         Constraints c = new Constraints.Builder()
                 .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
                 .build();
-        PeriodicWorkRequest req = new PeriodicWorkRequest.Builder(UpdateCheckWorker.class, 6, TimeUnit.HOURS)
+        PeriodicWorkRequest req = new PeriodicWorkRequest.Builder(UpdateCheckWorker.class, 12, TimeUnit.HOURS)
                 .setConstraints(c)
                 .build();
         WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
