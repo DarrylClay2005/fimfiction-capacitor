@@ -310,7 +310,7 @@ public class MainActivity extends BridgeActivity {
                 .setTitle("Update available")
                 .setMessage("A new version (" + latest + ") is available.");
         if (apkUrl != null && !apkUrl.isEmpty()) {
-            b.setPositiveButton("Download", (d, w) -> startApkDownload(apkUrl));
+            b.setPositiveButton("Download", (d, w) -> startApkDownload(apkUrl, latest));
             b.setNeutralButton("Releases", (d, w) -> {
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(GH_RELEASES_PAGE))); } catch (Exception ignored) { }
             });
@@ -325,6 +325,10 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void startApkDownload(String url) {
+        startApkDownload(url, null);
+    }
+
+    private void startApkDownload(String url, String version) {
         try {
             DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
             if (dm == null) return;
@@ -335,7 +339,15 @@ public class MainActivity extends BridgeActivity {
             req.setDescription("Downloading update...");
             req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-            dm.enqueue(req);
+            long id = dm.enqueue(req);
+            if (version != null && !version.isEmpty()) {
+                try {
+                    SharedPreferences p = getSharedPreferences("whats_new", MODE_PRIVATE);
+                    p.edit().putLong("last_update_download_id", id)
+                            .putString("last_update_version", version)
+                            .apply();
+                } catch (Throwable ignored) {}
+            }
             Toast.makeText(this, "Downloading update...", Toast.LENGTH_SHORT).show();
         } catch (Exception ignored) { }
     }

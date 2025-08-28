@@ -162,6 +162,19 @@ public class UpdateCheckWorker extends Worker {
                         ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
                         : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
         nb.setContentIntent(pi);
+        // Add direct Download action if APK url exists
+        if (apkUrl != null && !apkUrl.isEmpty()) {
+            android.content.Intent dl = new android.content.Intent("com.desmond.fimfiction.ACTION_DOWNLOAD_APK");
+            dl.setPackage(getApplicationContext().getPackageName());
+            dl.putExtra("apk_url", apkUrl);
+            dl.putExtra("version", latest);
+            android.app.PendingIntent piDl = android.app.PendingIntent.getBroadcast(
+                    getApplicationContext(), 1, dl,
+                    android.os.Build.VERSION.SDK_INT >= 31
+                            ? android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE
+                            : android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+            nb.addAction(0, "Download", piDl);
+        }
         NotificationManagerCompat.from(getApplicationContext()).notify(2001, nb.build());
     }
 
