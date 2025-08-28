@@ -1,0 +1,38 @@
+name: Bump Android version on release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  bump-version:
+    permissions:
+      contents: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update android/app/build.gradle version fields
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          VERSION_NAME="${TAG#v}"
+          echo "VERSION_NAME=$VERSION_NAME"
+          MAJOR=$(echo "$VERSION_NAME" | cut -d. -f1); MINOR=$(echo "$VERSION_NAME" | cut -d. -f2); PATCH=$(echo "$VERSION_NAME" | cut -d. -f3)
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+          VERSION_CODE=$((10#${MAJOR}*10000 + 10#${MINOR}*100 + 10#${PATCH}))
+          echo "VERSION_CODE=$VERSION_CODE"
+          sed -i "s/versionName \".*\"/versionName \"${VERSION_NAME}\"/" android/app/build.gradle
+          sed -i "s/versionCode [0-9][0-9]*/versionCode ${VERSION_CODE}/" android/app/build.gradle
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: bump Android version to ${{ env.TAG }}"
+          branch: "chore/bump-${{ env.TAG }}"
+          title: "chore: bump Android version to ${{ env.TAG }}"
+          body: "Auto PR to align android/app/build.gradle with release tag ${{ env.TAG }}."
+          base: main
+
