@@ -2,6 +2,7 @@ name: Android CI
 
 on:
   push:
+    branches: [ master ]
     tags:
       - 'v*'
   workflow_dispatch:
@@ -44,6 +45,19 @@ jobs:
           keyPassword=${ANDROID_KEY_PASSWORD}
           EOF
 
+      - name: Set version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION_NAME=${GITHUB_REF_NAME#v}
+          echo "Version name: $VERSION_NAME"
+          MAJOR=$(echo "$VERSION_NAME" | cut -d. -f1)
+          MINOR=$(echo "$VERSION_NAME" | cut -d. -f2)
+          PATCH=$(echo "$VERSION_NAME" | cut -d. -f3)
+          MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+          VERSION_CODE=$((10#${MAJOR}*10000 + 10#${MINOR}*100 + 10#${PATCH}))
+          echo "Version code: $VERSION_CODE"
+          sed -i "s/versionName \".*\"/versionName \"${VERSION_NAME}\"/" android/app/build.gradle
+          sed -i "s/versionCode [0-9][0-9]*/versionCode ${VERSION_CODE}/" android/app/build.gradle
       - name: Build Debug and Release
         run: |
           ./android/gradlew --no-daemon -p android assembleDebug assembleRelease

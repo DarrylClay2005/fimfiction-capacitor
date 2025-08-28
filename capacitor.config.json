@@ -5,7 +5,7 @@
   "server": {
     "url": "https://www.fimfiction.net",
     "cleartext": false,
-    "allowNavigation": ["*"]
+    "allowNavigation": ["fimfiction.net", "*.fimfiction.net"]
   },
   "android": {
     "allowMixedContent": false

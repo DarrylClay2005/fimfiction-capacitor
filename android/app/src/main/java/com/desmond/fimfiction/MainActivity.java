@@ -58,8 +58,14 @@ public class MainActivity extends BridgeActivity {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme() != null ? uri.getScheme().toLowerCase() : "";
                 if ("http".equals(scheme) || "https".equals(scheme)) {
-                    // Keep navigation in-app
-                    return false;
+                    String host = uri.getHost() != null ? uri.getHost().toLowerCase() : "";
+                    // Keep only fimfiction.net and subdomains in-app; open others externally
+                    if (host.endsWith("fimfiction.net")) {
+                        return false; // in-app
+                    } else {
+                        try { startActivity(new Intent(Intent.ACTION_VIEW, uri)); } catch (Exception ignored) { }
+                        return true; // handled externally
+                    }
                 }
                 // For non-http(s) schemes (e.g., mailto:, tel:), hand off to the system
                 try {
